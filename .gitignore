@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.swp
+
+# virtualenv
+.venv/
+
+# dotenv
+.env
+project_report.md
+
+# Streamlit
+.streamlit/
+
+# OS
+.DS_Store
+
+# pytests
+.pytest_cache/
