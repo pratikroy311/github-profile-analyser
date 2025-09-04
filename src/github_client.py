@@ -1,4 +1,3 @@
-import time
 import base64
 from typing import List, Dict, Any, Tuple
 import requests
@@ -27,10 +26,9 @@ def _get(url: str, token: str = "", accept: str = "application/vnd.github+json",
     return resp.status_code, payload, resp.headers
 
 def fetch_readme(owner: str, repo: str, token: str = "") -> str:
-    """Return README text (decoded), empty string if none or error."""
     url = f"{GITHUB_API}/repos/{owner}/{repo}/readme"
-    status, data, headers = _get(url, token, accept="application/vnd.github+json")
-    if status == 404 or status >= 400:
+    status, data, _ = _get(url, token)
+    if status != 200:
         return ""
     if isinstance(data, dict) and data.get("encoding") == "base64":
         try:
@@ -41,18 +39,34 @@ def fetch_readme(owner: str, repo: str, token: str = "") -> str:
         return data
     return ""
 
+def fetch_code_files(owner: str, repo: str, token: str = "", exts=None, max_files=3, max_lines=200) -> List[Dict[str, str]]:
+    exts = exts or [".py", ".js", ".ts", ".html", ".ipynb", ".java"]
+    url = f"{GITHUB_API}/repos/{owner}/{repo}/contents"
+    status, contents, _ = _get(url, token)
+    if status != 200 or not isinstance(contents, list):
+        return []
+    
+    snippets = []
+    count = 0
+    for f in contents:
+        if f["type"] == "file" and any(f["name"].endswith(e) for e in exts):
+            s_status, s_content, _ = _get(f["download_url"], token)
+            if s_status == 200 and isinstance(s_content, str):
+                lines = "\n".join(s_content.splitlines()[:max_lines])
+                snippets.append({"name": f["name"], "content": lines})
+                count += 1
+                if count >= max_files:
+                    break
+    return snippets
+
 def fetch_repos(username: str, token: str = "") -> List[Dict[str, Any]]:
-    """
-    Return list of normalized repo dicts including:
-    name, stars, forks, language, description, topics, license, pushed_at, readme
-    """
     repos: List[Dict[str, Any]] = []
     page = 1
     per_page = 100
 
     while True:
         url = f"{GITHUB_API}/users/{username}/repos?per_page={per_page}&page={page}&type=owner&sort=updated"
-        status, data, headers = _get(url, token)
+        status, data, _ = _get(url, token)
         if status == 404:
             raise ValueError("GitHub user not found")
         if status >= 400:
@@ -62,6 +76,7 @@ def fetch_repos(username: str, token: str = "") -> List[Dict[str, Any]]:
 
         for repo in data:
             readme = fetch_readme(username, repo.get("name"), token)
+            code_snippets = fetch_code_files(username, repo.get("name"), token)
             repos.append({
                 "name": repo.get("name"),
                 "html_url": repo.get("html_url"),
@@ -73,6 +88,7 @@ def fetch_repos(username: str, token: str = "") -> List[Dict[str, Any]]:
                 "license": (repo.get("license") or {}).get("spdx_id"),
                 "pushed_at": repo.get("pushed_at"),
                 "_readme": readme,
+                "_code_snippets": code_snippets,
                 "fork": repo.get("fork", False)
             })
 

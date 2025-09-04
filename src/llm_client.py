@@ -11,8 +11,8 @@ except Exception:
 PROMPT_TEMPLATE = """
 You are an expert tech talent analyst. 
 Analyze the developer profile based on GitHub repositories. 
-Use BOTH the project descriptions and README files (if available).
-Return ONLY JSON with the following fields:
+Include project description, README, and code snippets.
+Return ONLY JSON with:
 {
   "overall_summary": string,
   "key_languages_and_frameworks": [string],
@@ -58,7 +58,5 @@ def generate_analysis(prepared_data: List[Dict[str, Any]], model_name: str = Non
             if m:
                 return json.loads(m.group(0))
             raise RuntimeError("Could not parse JSON from LLM response")
-
-    # fallback
     from .analyzer import cheap_local_summary
     return cheap_local_summary(prepared_data)

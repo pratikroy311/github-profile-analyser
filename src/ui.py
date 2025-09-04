@@ -28,6 +28,7 @@ def run_app():
     if not run_button:
         st.info("Enter a username and click Analyze Profile")
         return
+
     if not username_input.strip():
         st.error("Please provide a GitHub username or profile URL.")
         return
@@ -36,7 +37,6 @@ def run_app():
     st.markdown(f"### Analyzing: **{username}**")
 
     # Fetch repos
-    cache_key = f"repos_{username}_{gh_token_override}"
     repos = st.cache_data(fetch_repos, show_spinner=False)(username, gh_token_override)
     if not repos:
         st.warning("No public repos found for user.")
@@ -44,7 +44,7 @@ def run_app():
 
     chosen = select_top_repos(repos, strategy=strategy, limit=limit)
 
-    # Show table
+    # Show quick summary table
     df = pd.DataFrame([{
         "name": r.get("name"),
         "language": r.get("language"),
@@ -56,34 +56,49 @@ def run_app():
     st.subheader("Selected repositories")
     st.dataframe(df, use_container_width=True)
 
-    st.subheader("Fetching descriptions & README files (may take a few seconds)")
+    # Prepare data for LLM
+    st.subheader("Preparing data for analysis (including descriptions, README & code snippets)…")
     prepared_for_llm = prepare_input_for_llm(username, chosen)
 
-    st.subheader("Asking the model to analyze the profile…")
+    st.subheader("Analyzing profile with AI…")
     with st.spinner("Generating analysis..."):
-        analysis = generate_analysis(prepared_for_llm, model_name=os.getenv("GEMINI_MODEL"), api_key=gemini_key_override or os.getenv("GEMINI_API_KEY"))
+        analysis = generate_analysis(
+            prepared_for_llm,
+            model_name=os.getenv("GEMINI_MODEL"),
+            api_key=gemini_key_override or os.getenv("GEMINI_API_KEY")
+        )
 
-    st.success("Analysis ready ✅")
+    st.success("✅ Analysis ready")
 
-    st.markdown("### Overall Summary")
+    # Highlight developer role
+    role = analysis.get("areas_of_expertise", ["Software Engineer"])[0]
+    st.markdown(f"## 👤 Suggested Role: **{role}**")
+
+    # Overall summary
+    st.markdown("### 📋 Overall Summary")
     st.write(analysis.get("overall_summary", "(no summary returned)"))
 
+    # Languages & Tools
     cols = st.columns(2)
     with cols[0]:
-        st.markdown("### Languages & Frameworks")
+        st.markdown("### 💻 Languages & Frameworks")
         for item in analysis.get("key_languages_and_frameworks", []):
             st.write(f"- {item}")
     with cols[1]:
-        st.markdown("### Tools & Technologies")
+        st.markdown("### 🛠️ Tools & Technologies")
         for item in analysis.get("tools_and_technologies", []):
             st.write(f"- {item}")
 
-    st.markdown("### Top projects")
-    for p in analysis.get("top_projects", []):
+    # Top project highlighted
+    top_projects = analysis.get("top_projects", [])
+    if top_projects:
+        st.markdown("### ⭐ Top Project")
+        p = top_projects[0]
         name = p.get("name")
         url = p.get("url")
         why = p.get("why_it_stands_out", "")
         st.markdown(f"**[{name}]({url})**  \n{why}")
 
+    # Raw JSON output (optional)
     with st.expander("Raw model output (JSON)"):
         st.code(json.dumps(analysis, indent=2, ensure_ascii=False))
