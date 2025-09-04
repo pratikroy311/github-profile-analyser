@@ -2,14 +2,13 @@ import os
 import json
 import streamlit as st
 import pandas as pd
-from typing import List, Dict, Any
 from dotenv import load_dotenv
 
-from .github_client import parse_username, fetch_repos, fetch_readme
+from .github_client import parse_username, fetch_repos
 from .analyzer import select_top_repos, prepare_input_for_llm
 from .llm_client import generate_analysis
 
-load_dotenv()  # optional, will pick up .env if present
+load_dotenv()
 
 def run_app():
     st.set_page_config(page_title="AI GitHub Profile Analyzer", layout="wide")
@@ -29,7 +28,6 @@ def run_app():
     if not run_button:
         st.info("Enter a username and click Analyze Profile")
         return
-
     if not username_input.strip():
         st.error("Please provide a GitHub username or profile URL.")
         return
@@ -37,43 +35,33 @@ def run_app():
     username = parse_username(username_input)
     st.markdown(f"### Analyzing: **{username}**")
 
-    # Fetch repos (cache per username+token to reduce API calls)
+    # Fetch repos
     cache_key = f"repos_{username}_{gh_token_override}"
     repos = st.cache_data(fetch_repos, show_spinner=False)(username, gh_token_override)
-
     if not repos:
         st.warning("No public repos found for user.")
         return
 
     chosen = select_top_repos(repos, strategy=strategy, limit=limit)
 
-    # Show quick table summary
+    # Show table
     df = pd.DataFrame([{
         "name": r.get("name"),
         "language": r.get("language"),
-        "stars": r.get("stargazers_count", 0),
-        "forks": r.get("forks_count", 0),
+        "stars": r.get("stars"),
+        "forks": r.get("forks"),
         "updated": r.get("pushed_at"),
         "url": r.get("html_url")
     } for r in chosen])
     st.subheader("Selected repositories")
     st.dataframe(df, use_container_width=True)
 
-    # Fetch READMEs for selected repos (cache)
-    st.subheader("Fetching README files (may take a few seconds)")
-    prepared_for_llm = []
-    for r in chosen:
-        readme = st.cache_data(fetch_readme, show_spinner=False)(username, r["name"], gh_token_override)
-        r["_readme"] = readme
-        prepared_for_llm.append(r)
+    st.subheader("Fetching descriptions & README files (may take a few seconds)")
+    prepared_for_llm = prepare_input_for_llm(username, chosen)
 
-    # Trim and prepare
-    prepared = prepare_input_for_llm(username, prepared_for_llm)
-
-    # Call LLM (Gemini) or fallback
     st.subheader("Asking the model to analyze the profile…")
     with st.spinner("Generating analysis..."):
-        analysis = generate_analysis(prepared, model_name=os.getenv("GEMINI_MODEL"), api_key=gemini_key_override or os.getenv("GEMINI_API_KEY"))
+        analysis = generate_analysis(prepared_for_llm, model_name=os.getenv("GEMINI_MODEL"), api_key=gemini_key_override or os.getenv("GEMINI_API_KEY"))
 
     st.success("Analysis ready ✅")
 
